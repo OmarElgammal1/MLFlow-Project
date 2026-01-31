@@ -125,8 +125,7 @@ def train(X_train, y_train):
     Returns:
         LogisticRegression: trained logistic regression model
     """
-    from sklearn.ensemble import RandomForestClassifier
-    log_reg = RandomForestClassifier(n_estimators=100)
+    log_reg = LogisticRegression(max_iter=20000)
     log_reg.fit(X_train, y_train)
 
     ### Log the model with the input and output schema
@@ -136,7 +135,7 @@ def train(X_train, y_train):
 
 
     # Log model
-    mlflow.sklearn.log_model(log_reg, "decision_tree_model", signature=input_schema)
+    mlflow.sklearn.log_model(log_reg, "logistic_regression_model", signature=input_schema)
 
     ### Log the data
     mlflow.log_artifact("dataset/Churn_Modelling.csv")
@@ -155,7 +154,7 @@ def main():
 
 
     ### Start a new run and leave all the main function code as part of the experiment
-    with mlflow.start_run(run_name="decision_tree_run_1"):
+    with mlflow.start_run(run_name="logistic_regression_run"):
 
         df = pd.read_csv("dataset/Churn_Modelling.csv")
         col_transf, X_train, X_test, y_train, y_test = preprocess(df)
@@ -163,7 +162,7 @@ def main():
         ### Log the max_iter parameter
 
         model = train(X_train, y_train)
-        mlflow.log_param("n_estimators", model.n_estimators)
+        mlflow.log_param("max_iter", model.max_iter)
 
         
         y_pred = model.predict(X_test)
@@ -172,7 +171,7 @@ def main():
         accuracy = accuracy_score(y_test, y_pred)
 
         ### Log tag
-        mlflow.set_tag("model_type", "decision_tree_classifier")
+        mlflow.set_tag("model_type", "logistic_regression")
 
         ### Log metrics
         mlflow.log_metric("accuracy", accuracy)
