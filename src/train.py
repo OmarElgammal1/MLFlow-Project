@@ -19,7 +19,8 @@ from sklearn.metrics import (
     ConfusionMatrixDisplay,
 )
 
-### Import MLflow
+import mlflow
+
 
 def rebalance(data):
     """
@@ -107,6 +108,8 @@ def preprocess(df):
     X_test = pd.DataFrame(X_test, columns=col_transf.get_feature_names_out())
 
     # Log the transformer as an artifact
+    mlflow.sklearn.log_model(col_transf, "transformer")
+
 
     return col_transf, X_train, X_test, y_train, y_test
 
@@ -122,54 +125,78 @@ def train(X_train, y_train):
     Returns:
         LogisticRegression: trained logistic regression model
     """
-    log_reg = LogisticRegression(max_iter=1000)
+    from sklearn.ensemble import RandomForestClassifier
+    log_reg = RandomForestClassifier(n_estimators=100)
     log_reg.fit(X_train, y_train)
 
     ### Log the model with the input and output schema
     # Infer signature (input and output schema)
+    input_schema = mlflow.models.infer_signature(X_train, log_reg.predict(X_train))
+    output_schema = mlflow.models.infer_signature(y_train, log_reg.predict(X_train))
+
 
     # Log model
+    mlflow.sklearn.log_model(log_reg, "decision_tree_model", signature=input_schema)
 
     ### Log the data
+    mlflow.log_artifact("dataset/Churn_Modelling.csv")
+
+
 
     return log_reg
 
 
 def main():
     ### Set the tracking URI for MLflow
+    mlflow.set_tracking_uri("http://localhost:5000")
 
     ### Set the experiment name
+    mlflow.set_experiment("Bank Consumer Churn Prediction")
 
 
     ### Start a new run and leave all the main function code as part of the experiment
+    with mlflow.start_run(run_name="decision_tree_run_1"):
 
-    df = pd.read_csv("data/Churn_Modelling.csv")
-    col_transf, X_train, X_test, y_train, y_test = preprocess(df)
+        df = pd.read_csv("dataset/Churn_Modelling.csv")
+        col_transf, X_train, X_test, y_train, y_test = preprocess(df)
 
-    ### Log the max_iter parameter
+        ### Log the max_iter parameter
 
-    model = train(X_train, y_train)
+        model = train(X_train, y_train)
+        mlflow.log_param("n_estimators", model.n_estimators)
 
-    
-    y_pred = model.predict(X_test)
+        
+        y_pred = model.predict(X_test)
 
-    ### Log metrics after calculating them
+        ### Log metrics after calculating them
+        accuracy = accuracy_score(y_test, y_pred)
 
+        ### Log tag
+        mlflow.set_tag("model_type", "decision_tree_classifier")
 
-    ### Log tag
+        ### Log metrics
+        mlflow.log_metric("accuracy", accuracy)
+        precision = precision_score(y_test, y_pred)
+        mlflow.log_metric("precision", precision)
+        recall = recall_score(y_test, y_pred)
+        mlflow.log_metric("recall", recall)
+        f1 = f1_score(y_test, y_pred)
+        mlflow.log_metric("f1_score", f1)
 
+        
+        conf_mat = confusion_matrix(y_test, y_pred, labels=model.classes_)
+        conf_mat_disp = ConfusionMatrixDisplay(
+            confusion_matrix=conf_mat, display_labels=model.classes_
+        )
+        conf_mat_disp.plot()
+        
+        # Log the image as an artifact in MLflow
+        plt.savefig("confusion_matrix.png")
+        mlflow.log_artifact("confusion_matrix.png")
 
-    
-    conf_mat = confusion_matrix(y_test, y_pred, labels=model.classes_)
-    conf_mat_disp = ConfusionMatrixDisplay(
-        confusion_matrix=conf_mat, display_labels=model.classes_
-    )
-    conf_mat_disp.plot()
-    
-    # Log the image as an artifact in MLflow
-    
-    plt.show()
+        plt.show()
 
 
 if __name__ == "__main__":
     main()
+
