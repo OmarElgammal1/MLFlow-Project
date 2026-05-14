@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from src.api import predictor
-from src.api.schemas import PredictRequest, PredictResponse
+from src import predictor
+from src.schemas import PredictRequest, PredictResponse
 
 
 def test_predict_returns_valid_response(sample_payload: dict) -> None:

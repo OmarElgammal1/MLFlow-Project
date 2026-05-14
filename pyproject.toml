@@ -16,8 +16,6 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-http>=1.27",
     "opentelemetry-instrumentation-logging>=0.48b0",
     "opentelemetry-instrumentation-asgi>=0.48b0",
-    "mlflow==2.22.0",
-    "matplotlib>=3.8",
 ]
 
 [dependency-groups]
@@ -28,10 +26,10 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--cov=src/api --cov-report=term-missing --cov-fail-under=70"
+addopts = "--cov=src --cov-report=term-missing --cov-fail-under=70"
 testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.coverage.run]
-source = ["src/api"]
-omit = ["src/api/__init__.py"]
+source = ["src"]
+omit = ["src/__init__.py"]

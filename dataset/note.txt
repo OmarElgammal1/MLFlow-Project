@@ -1,2 +1,0 @@
-download your data here
-https://www.kaggle.com/datasets/shantanudhakadd/bank-customer-churn-prediction/data

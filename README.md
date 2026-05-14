@@ -1,19 +1,21 @@
-# Bank Consumer Churn Prediction
+# Bank Consumer Churn Prediction API
 
-A Random Forest classifier for bank customer churn, served through a Litestar HTTP API with thorough logging shipped live to [HyperDX](https://www.hyperdx.io/) over OTLP. MLflow is used for experiment tracking during training; `uv` manages the Python environment.
+A Litestar HTTP service that serves a pre-trained Random Forest classifier for bank customer churn, with thorough logging shipped live to [HyperDX](https://www.hyperdx.io/) over OTLP. `uv` manages the Python environment.
+
+The model and preprocessing transformer are loaded from `model.pkl` and `transformer.pkl` at the repo root — training is intentionally out of scope for this project.
 
 ## Project Structure
 
-- [dataset/](dataset/) — `Churn_Modelling.csv` source data.
 - [src/](src/)
-  - [preprocessing.py](src/preprocessing.py) — load, rebalance, transform features.
-  - [model.py](src/model.py) — Random Forest training and evaluation, with MLflow logging.
-  - [train.py](src/train.py) — training entry point. Dumps `model.pkl` at repo root.
-  - [src/api/](src/api/) — Litestar app, schemas, predictor, logging setup.
-- [tests/](tests/) — pytest suite covering predictor (function tests) and API (endpoint tests).
-- [pyproject.toml](pyproject.toml) — uv project and pytest configuration.
+  - [app.py](src/app.py) — Litestar app and route handlers.
+  - [schemas.py](src/schemas.py) — Pydantic request/response models.
+  - [predictor.py](src/predictor.py) — artifact loading and the single-record `predict()` function.
+  - [logging_setup.py](src/logging_setup.py) — stdout + HyperDX OTLP wiring.
+- [tests/](tests/) — pytest suite (function tests + endpoint tests).
+- [pyproject.toml](pyproject.toml) — uv project + pytest configuration.
 - [uv.lock](uv.lock) — committed lockfile for reproducible installs.
 - `.env.example` — template for HyperDX env variables.
+- `model.pkl`, `transformer.pkl` — prediction artifacts loaded at startup.
 
 ## Prerequisites
 
@@ -33,24 +35,10 @@ cp .env.example .env
 # edit .env: set HYPERDX_API_KEY=...
 ```
 
-## Train the model
-
-The training script logs metrics, params, and artifacts to MLflow at `http://localhost:5000`, and writes `model.pkl` next to `transformer.pkl` at the repo root.
-
-```bash
-# 1. Start MLflow (fresh sqlite store)
-uv run mlflow server --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlruns --host 127.0.0.1 --port 5000
-
-# 2. In a second terminal, run training
-uv run python src/train.py
-```
-
-After it finishes you should see `model.pkl` and `confusion_matrix.png` at the repo root, plus a new run in the MLflow UI.
-
 ## Run the API
 
 ```bash
-uv run litestar --app src.api.app:app run --port 8000
+uv run litestar --app src.app:app run --port 8000
 ```
 
 Endpoints:
@@ -85,7 +73,7 @@ curl -X POST http://127.0.0.1:8000/predict \
 
 ## Live logs with HyperDX
 
-[src/api/logging_setup.py](src/api/logging_setup.py) wires the Python root logger to an OTLP exporter pointed at HyperDX. Configure via `.env`:
+[src/logging_setup.py](src/logging_setup.py) wires the Python root logger to an OTLP exporter pointed at HyperDX. Configure via `.env`:
 
 ```
 HYPERDX_API_KEY=your-hyperdx-ingest-key
@@ -108,14 +96,14 @@ What gets logged on every request:
 uv run pytest
 ```
 
-The suite enforces ≥70% coverage on `src/api` (`--cov-fail-under=70`, configured in [pyproject.toml](pyproject.toml)):
+The suite enforces ≥70% coverage on `src` (`--cov-fail-under=70`, configured in [pyproject.toml](pyproject.toml)):
 
 - [tests/test_predictor.py](tests/test_predictor.py) — function tests for `predictor.predict`, feature hashing, and artifact-missing error paths.
 - [tests/test_api.py](tests/test_api.py) — endpoint tests for `/`, `/health`, `/predict` (happy path + two validation failures), using Litestar's `TestClient`.
 
 ## Model details
 
-- **Algorithm**: Random Forest Classifier (`n_estimators=100`, `random_state=42`).
+- **Algorithm**: Random Forest Classifier.
 - **Features**: CreditScore, Geography, Gender, Age, Tenure, Balance, NumOfProducts, HasCrCard, IsActiveMember, EstimatedSalary.
 - **Target**: `Exited` (0 = retained, 1 = churned).
-- **Preprocessing**: a pre-fitted `ColumnTransformer` (StandardScaler + OneHotEncoder) is loaded from `transformer.pkl`.
+- **Preprocessing**: a pre-fitted `ColumnTransformer` (StandardScaler + OneHotEncoder) loaded from `transformer.pkl`.

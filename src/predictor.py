@@ -11,11 +11,11 @@ from pathlib import Path
 import joblib
 import pandas as pd
 
-from src.api.schemas import PredictRequest, PredictResponse
+from src.schemas import PredictRequest, PredictResponse
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "model.pkl"
 TRANSFORMER_PATH = REPO_ROOT / "transformer.pkl"
 

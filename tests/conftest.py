@@ -10,8 +10,8 @@ from litestar.testing import TestClient
 
 os.environ.setdefault("HYPERDX_API_KEY", "")
 
-from src.api import predictor  # noqa: E402
-from src.api.app import app  # noqa: E402
+from src import predictor  # noqa: E402
+from src.app import app  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)

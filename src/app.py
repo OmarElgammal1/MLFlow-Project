@@ -9,9 +9,9 @@ from litestar.exceptions import HTTPException
 from litestar.logging import LoggingConfig
 from litestar.status_codes import HTTP_500_INTERNAL_SERVER_ERROR
 
-from src.api import predictor
-from src.api.logging_setup import configure_logging
-from src.api.schemas import HealthResponse, HomeResponse, PredictRequest, PredictResponse
+from src import predictor
+from src.logging_setup import configure_logging
+from src.schemas import HealthResponse, HomeResponse, PredictRequest, PredictResponse
 
 logger = logging.getLogger("churn_api")
 
