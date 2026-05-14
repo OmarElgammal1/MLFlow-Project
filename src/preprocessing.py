@@ -2,6 +2,7 @@
 This module contains functions to preprocess the data for bank consumer churn prediction.
 """
 
+import pickle
 import pandas as pd
 from sklearn.utils import resample
 from sklearn.model_selection import train_test_split
@@ -82,13 +83,20 @@ def preprocess(df):
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.3, random_state=1912
     )
-    col_transf = make_column_transformer(
-        (StandardScaler(), num_cols), 
-        (OneHotEncoder(handle_unknown="ignore", drop="first"), cat_cols),
-        remainder="passthrough",
-    )
 
-    X_train = col_transf.fit_transform(X_train)
+
+    with open("transformer.pkl", "rb") as f:
+        col_transf = pickle.load(f)
+
+    
+    # col_transf = make_column_transformer(
+    #     (StandardScaler(), num_cols), 
+    #     (OneHotEncoder(handle_unknown="ignore", drop="first"), cat_cols),
+    #     remainder="passthrough",
+    # )
+
+    # X_train = col_transf.fit_transform(X_train)
+    X_train = col_transf.transform(X_train)
     X_train = pd.DataFrame(X_train, columns=col_transf.get_feature_names_out())
 
     X_test = col_transf.transform(X_test)
