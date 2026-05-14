@@ -3,6 +3,7 @@ This module contains functions to preprocess and train the model
 for bank consumer churn prediction.
 """
 
+import joblib
 import pandas as pd
 import mlflow
 import preprocessing
@@ -27,6 +28,11 @@ def main():
         trained_model = model.train(X_train, y_train)
 
         model.evaluate_model(trained_model, X_test, y_test)
+
+        ### Persist the best model locally so the API can load it without MLflow
+        joblib.dump(trained_model, "model.pkl")
+        mlflow.log_artifact("model.pkl")
+        print("Saved model.pkl to repo root.")
 
 
 if __name__ == "__main__":
