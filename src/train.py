@@ -3,11 +3,16 @@ This module contains functions to preprocess and train the model
 for bank consumer churn prediction.
 """
 
+import sys
+
 import joblib
 import pandas as pd
 import mlflow
 import preprocessing
 import model
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def main():
