@@ -23,10 +23,8 @@ def main():
         df = pd.read_csv("dataset/Churn_Modelling.csv")
         col_transf, X_train, X_test, y_train, y_test = preprocessing.preprocess(df)
 
-        ### Log the n_estimators parameter
 
         trained_model = model.train(X_train, y_train)
-        mlflow.log_param("n_estimators", trained_model.n_estimators)
 
         model.evaluate_model(trained_model, X_test, y_test)
 

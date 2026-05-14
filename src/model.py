@@ -37,6 +37,9 @@ def train(X_train, y_train):
     # Log model
     mlflow.sklearn.log_model(clf, "random_forest_model", signature=input_schema)
 
+    mlflow.log_param("n_estimators", clf.n_estimators)
+
+
     ### Log the data
     mlflow.log_artifact("dataset/Churn_Modelling.csv")
 
