@@ -41,6 +41,34 @@ cp .env.example .env
 uv run litestar --app src.app:app run --port 8000
 ```
 
+### Run with Docker
+
+Build the image once:
+
+```bash
+docker build -t churn-api:latest .
+```
+
+Run the container, mapping host port 8000 to container port 8000 and loading the local `.env` (HyperDX key + OTEL settings):
+
+```bash
+docker run -d --name churn-api --env-file .env -p 8000:8000 churn-api:latest
+```
+
+Without HyperDX (stdout logs only):
+
+```bash
+docker run -d --name churn-api -p 8000:8000 churn-api:latest
+```
+
+Helpful follow-ups:
+
+```bash
+docker logs -f churn-api      # tail logs
+docker ps                     # confirm it is running
+docker rm -f churn-api        # stop and remove
+```
+
 Endpoints:
 
 | Method | Path       | Purpose                                       |
