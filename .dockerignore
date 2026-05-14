@@ -1,0 +1,48 @@
+# Local virtualenvs and build artifacts
+.venv
+venv
+env
+build
+dist
+*.egg-info
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Git / VCS
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Tests (image only needs to serve)
+tests
+
+# Docs and config not needed at runtime
+README.md
+*.md
+.env
+.env.*
+!.env.example
+
+# Docker itself
+Dockerfile
+.dockerignore
+
+# Stray artifacts
+confusion_matrix.png
+mlflow.db*
+mlruns
