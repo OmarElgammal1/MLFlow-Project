@@ -28,8 +28,9 @@ htmlcov
 *.swp
 .DS_Store
 
-# Tests (image only needs to serve)
+# Tests and load tests (image only needs to serve)
 tests
+loadtest
 
 # Docs and config not needed at runtime
 README.md
