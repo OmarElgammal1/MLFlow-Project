@@ -129,6 +129,18 @@ The suite enforces ≥70% coverage on `src` (`--cov-fail-under=70`, configured i
 - [tests/test_predictor.py](tests/test_predictor.py) — function tests for `predictor.predict`, feature hashing, and artifact-missing error paths.
 - [tests/test_api.py](tests/test_api.py) — endpoint tests for `/`, `/health`, `/predict` (happy path + two validation failures), using Litestar's `TestClient`.
 
+## Load testing
+
+A Locust swarm in [loadtest/](loadtest/) exercises the deployed (or local) API. Locust is in its own dep group so it never leaks into the runtime image or the test job.
+
+```bash
+uv sync --group load
+LOCUST_HOST=http://127.0.0.1:8000 uv run locust -f loadtest/locustfile.py
+# open http://localhost:8089, set Users + Spawn rate, click "Start swarming"
+```
+
+Point `LOCUST_HOST` at your EC2 deployment to run the same swarm against production. See [loadtest/README.md](loadtest/README.md) for the experiment matrix and which charts to read.
+
 ## Model details
 
 - **Algorithm**: Random Forest Classifier.
