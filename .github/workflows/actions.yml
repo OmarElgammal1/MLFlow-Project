@@ -1,9 +1,10 @@
-name: CI/CD
+name: Main validation and deploy to EC2 pipeline
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+  # search
 
 env:
   IMAGE_NAME: churn-api
@@ -15,15 +16,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true
+          enable-cache: true # search
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Sync dependencies (frozen)
+      - name: Sync dependencies (frozen)  # can i sync and set up uv in the same step?
         run: uv sync --frozen
 
       - name: Run pytest (>=70% coverage gate)
@@ -34,14 +35,14 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     outputs:
-      image_tag: ${{ steps.meta.outputs.image_tag }}
+      image_tag: ${{ steps.meta.outputs.image_tag }} #search
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Compute image tag
         id: meta
-        run: echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT" # search
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -60,7 +61,7 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}
-          cache-from: type=gha
+          cache-from: type=gha # search
           cache-to: type=gha,mode=max
 
   deploy:
@@ -68,30 +69,33 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
       - name: SSH into EC2 and roll out new image
-        uses: appleboy/ssh-action@v1
         env:
           IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}
           HYPERDX_API_KEY: ${{ secrets.HYPERDX_API_KEY }}
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ 22 }}
-          envs: IMAGE,HYPERDX_API_KEY
-          script: |
-            set -euo pipefail
-            echo "Pulling $IMAGE"
-            docker pull "$IMAGE"
-            docker rm -f churn-api 2>/dev/null || true
-            docker run -d \
-              --name churn-api \
-              --restart unless-stopped \
-              -p 443:8000 \
-              -e HYPERDX_API_KEY \
-              -e OTEL_SERVICE_NAME=churn-api \
-              -e OTEL_EXPORTER_OTLP_ENDPOINT=https://in-otel.hyperdx.io \
-              "$IMAGE"
-            docker image prune -f
-            sleep 3
-            docker ps --filter name=churn-api --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+        run: |
+          ssh -i ~/.ssh/ec2_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            IMAGE="$IMAGE" HYPERDX_API_KEY="$HYPERDX_API_KEY" bash -s <<'EOF'
+          set -euo pipefail
+          echo "Pulling $IMAGE"
+          docker pull "$IMAGE"
+          docker rm -f churn-api 2>/dev/null || true
+          docker run -d \
+            --name churn-api \
+            --restart unless-stopped \
+            -p 443:8000 \
+            -e HYPERDX_API_KEY \
+            -e OTEL_SERVICE_NAME=churn-api \
+            -e OTEL_EXPORTER_OTLP_ENDPOINT=https://in-otel.hyperdx.io \
+            "$IMAGE"
+          docker image prune -f
+          sleep 3
+          docker ps --filter name=churn-api --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+          EOF
