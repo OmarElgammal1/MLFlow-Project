@@ -8,7 +8,8 @@ from collections.abc import Iterator
 import pytest
 from litestar.testing import TestClient
 
-os.environ.setdefault("HYPERDX_API_KEY", "")
+os.environ.setdefault("AXIOM_TOKEN", "")
+os.environ.setdefault("AXIOM_DATASET", "")
 
 from src import predictor  # noqa: E402
 from src.app import app  # noqa: E402
