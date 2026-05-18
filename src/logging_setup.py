@@ -1,15 +1,43 @@
-"""Configure Python logging and OpenTelemetry export to HyperDX."""
+"""Configure Python logging and ship structured events to Axiom."""
 
 from __future__ import annotations
 
 import logging
 import os
 import sys
+import threading
 
 from dotenv import load_dotenv
 
-DEFAULT_ENDPOINT = "https://in-otel.hyperdx.io"
 _configured = False
+
+_STANDARD_LOG_KEYS = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "created",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
+        "message",
+        "taskName",
+        "color_message",
+    }
+)
 
 
 def _build_stdout_handler() -> logging.Handler:
@@ -23,11 +51,74 @@ def _build_stdout_handler() -> logging.Handler:
     return handler
 
 
-def configure_logging() -> None:
-    """Wire stdout logging and (optionally) ship logs to HyperDX via OTLP.
+class AxiomBufferedHandler(logging.Handler):
+    """Background-batched logging handler that ships records to Axiom.
 
-    Reads HYPERDX_API_KEY from environment / .env. Without the key, only
-    stdout logging is configured so tests and local runs work offline.
+    Each LogRecord becomes one event. `extra={...}` keys appear as top-level
+    fields in the event so APL queries chart them directly without nested
+    attribute paths.
+    """
+
+    def __init__(self, client, dataset: str, flush_interval: float = 2.0):
+        super().__init__()
+        self._client = client
+        self._dataset = dataset
+        self._flush_interval = flush_interval
+        self._buffer: list[dict] = []
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._flusher = threading.Thread(
+            target=self._flush_loop, daemon=True, name="axiom-flusher"
+        )
+        self._flusher.start()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            event = self._record_to_event(record)
+            with self._lock:
+                self._buffer.append(event)
+        except Exception:
+            self.handleError(record)
+
+    @staticmethod
+    def _record_to_event(record: logging.LogRecord) -> dict:
+        event: dict = {
+            "_time": int(record.created * 1000),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        for key, value in record.__dict__.items():
+            if key in _STANDARD_LOG_KEYS:
+                continue
+            event[key] = value
+        return event
+
+    def _flush_loop(self) -> None:
+        while not self._stop.wait(self._flush_interval):
+            self._flush()
+
+    def _flush(self) -> None:
+        with self._lock:
+            batch, self._buffer = self._buffer, []
+        if not batch:
+            return
+        try:
+            self._client.ingest_events(self._dataset, batch)
+        except Exception as exc:
+            sys.stderr.write(f"axiom ingest failed: {exc}\n")
+
+    def close(self) -> None:
+        self._stop.set()
+        self._flush()
+        super().close()
+
+
+def configure_logging() -> None:
+    """Wire stdout logging and (optionally) ship logs to Axiom.
+
+    Reads AXIOM_TOKEN and AXIOM_DATASET from environment / .env. Without them,
+    only stdout logging is configured so tests and local runs work offline.
     """
     global _configured
     if _configured:
@@ -41,63 +132,29 @@ def configure_logging() -> None:
         root.removeHandler(existing)
     root.addHandler(_build_stdout_handler())
 
-    api_key = os.environ.get("HYPERDX_API_KEY", "").strip()
-    if not api_key:
+    token = os.environ.get("AXIOM_TOKEN", "").strip()
+    dataset = os.environ.get("AXIOM_DATASET", "").strip()
+
+    if not token or not dataset:
         logging.getLogger(__name__).info(
-            "HYPERDX_API_KEY not set; OTLP exporter disabled, stdout only"
+            "AXIOM_TOKEN/AXIOM_DATASET not set; Axiom shipping disabled, stdout only"
         )
         _configured = True
         return
 
     try:
-        from opentelemetry import trace
-        from opentelemetry._logs import set_logger_provider
-        from opentelemetry.exporter.otlp.proto.http._log_exporter import (
-            OTLPLogExporter,
-        )
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-            OTLPSpanExporter,
-        )
-        from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
-        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        import axiom_py
     except ImportError as exc:
-        logging.getLogger(__name__).warning(
-            "OpenTelemetry SDK unavailable: %s", exc
-        )
+        logging.getLogger(__name__).warning("axiom-py unavailable: %s", exc)
         _configured = True
         return
 
-    endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", DEFAULT_ENDPOINT).rstrip(
-        "/"
-    )
-    service_name = os.environ.get("OTEL_SERVICE_NAME", "churn-api")
-    headers = {"authorization": api_key}
-
-    resource = Resource.create({"service.name": service_name})
-
-    log_provider = LoggerProvider(resource=resource)
-    log_provider.add_log_record_processor(
-        BatchLogRecordProcessor(
-            OTLPLogExporter(endpoint=f"{endpoint}/v1/logs", headers=headers)
-        )
-    )
-    set_logger_provider(log_provider)
-    root.addHandler(LoggingHandler(level=logging.INFO, logger_provider=log_provider))
-
-    tracer_provider = TracerProvider(resource=resource)
-    tracer_provider.add_span_processor(
-        BatchSpanProcessor(
-            OTLPSpanExporter(endpoint=f"{endpoint}/v1/traces", headers=headers)
-        )
-    )
-    trace.set_tracer_provider(tracer_provider)
+    client = axiom_py.Client(token=token)
+    handler = AxiomBufferedHandler(client, dataset)
+    handler.setLevel(logging.INFO)
+    root.addHandler(handler)
 
     logging.getLogger(__name__).info(
-        "HyperDX OTLP exporters wired (service=%s, endpoint=%s)",
-        service_name,
-        endpoint,
+        "Axiom handler wired (dataset=%s)", dataset
     )
     _configured = True

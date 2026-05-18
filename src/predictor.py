@@ -90,6 +90,7 @@ def predict(features: PredictRequest) -> PredictResponse:
     logger.info(
         "prediction served",
         extra={
+            "event": "prediction_served",
             "feature_hash": feature_hash,
             "prediction": prediction,
             "probability": round(proba, 4),
