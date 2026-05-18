@@ -1,7 +1,7 @@
 [project]
 name = "churn-api"
 version = "0.1.0"
-description = "Bank customer churn prediction served via Litestar with HyperDX live logs"
+description = "Bank customer churn prediction served via Litestar with Axiom live logs"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "litestar[standard]>=2.12,<3.0",
@@ -11,11 +11,7 @@ dependencies = [
     "numpy==2.2.5",
     "pydantic>=2.7",
     "python-dotenv>=1.0",
-    "opentelemetry-api>=1.27",
-    "opentelemetry-sdk>=1.27",
-    "opentelemetry-exporter-otlp-proto-http>=1.27",
-    "opentelemetry-instrumentation-logging>=0.48b0",
-    "opentelemetry-instrumentation-asgi>=0.48b0",
+    "axiom-py>=0.10",
 ]
 
 [dependency-groups]
