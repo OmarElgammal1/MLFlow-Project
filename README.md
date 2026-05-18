@@ -1,6 +1,6 @@
 # Bank Consumer Churn Prediction API
 
-A Litestar HTTP service that serves a pre-trained Random Forest classifier for bank customer churn, with thorough logging shipped live to [HyperDX](https://www.hyperdx.io/) over OTLP. `uv` manages the Python environment.
+A Litestar HTTP service that serves a pre-trained Random Forest classifier for bank customer churn, with structured events shipped live to [Axiom](https://axiom.co/) for dashboards and alerting. `uv` manages the Python environment.
 
 The model and preprocessing transformer are loaded from `model.pkl` and `transformer.pkl` at the repo root — training is intentionally out of scope for this project.
 
@@ -10,11 +10,11 @@ The model and preprocessing transformer are loaded from `model.pkl` and `transfo
   - [app.py](src/app.py) — Litestar app and route handlers.
   - [schemas.py](src/schemas.py) — Pydantic request/response models.
   - [predictor.py](src/predictor.py) — artifact loading and the single-record `predict()` function.
-  - [logging_setup.py](src/logging_setup.py) — stdout + HyperDX OTLP wiring.
+  - [logging_setup.py](src/logging_setup.py) — stdout + Axiom shipping handler.
 - [tests/](tests/) — pytest suite (function tests + endpoint tests).
 - [pyproject.toml](pyproject.toml) — uv project + pytest configuration.
 - [uv.lock](uv.lock) — committed lockfile for reproducible installs.
-- `.env.example` — template for HyperDX env variables.
+- `.env.example` — template for Axiom env variables.
 - `model.pkl`, `transformer.pkl` — prediction artifacts loaded at startup.
 
 ## Prerequisites
@@ -28,11 +28,11 @@ The model and preprocessing transformer are loaded from `model.pkl` and `transfo
 uv sync
 ```
 
-Copy the example env file and fill in your HyperDX ingest key (optional — without it, logs go to stdout only):
+Copy the example env file and fill in your Axiom ingest token + dataset (optional — without them, logs go to stdout only):
 
 ```bash
 cp .env.example .env
-# edit .env: set HYPERDX_API_KEY=...
+# edit .env: set AXIOM_TOKEN=... and AXIOM_DATASET=churn-api
 ```
 
 ## Run the API
@@ -49,13 +49,13 @@ Build the image once:
 docker build -t churn-api:latest .
 ```
 
-Run the container, mapping host port 8000 to container port 8000 and loading the local `.env` (HyperDX key + OTEL settings):
+Run the container, mapping host port 8000 to container port 8000 and loading the local `.env` (Axiom token + dataset):
 
 ```bash
 docker run -d --name churn-api --env-file .env -p 8000:8000 churn-api:latest
 ```
 
-Without HyperDX (stdout logs only):
+Without Axiom (stdout logs only):
 
 ```bash
 docker run -d --name churn-api -p 8000:8000 churn-api:latest
@@ -99,24 +99,51 @@ curl -X POST http://127.0.0.1:8000/predict \
 # -> {"prediction":1,"probability":0.87}
 ```
 
-## Live logs with HyperDX
+## Live observability with Axiom
 
-[src/logging_setup.py](src/logging_setup.py) wires the Python root logger to an OTLP exporter pointed at HyperDX. Configure via `.env`:
+[src/logging_setup.py](src/logging_setup.py) wires the Python root logger to a custom `AxiomBufferedHandler` that batches each `LogRecord` and ships it to an Axiom dataset via the [axiom-py](https://github.com/axiomhq/axiom-py) SDK. Configure via `.env`:
 
 ```
-HYPERDX_API_KEY=your-hyperdx-ingest-key
-OTEL_SERVICE_NAME=churn-api
-OTEL_EXPORTER_OTLP_ENDPOINT=https://in-otel.hyperdx.io
+AXIOM_TOKEN=your-axiom-ingest-token
+AXIOM_DATASET=churn-api
 ```
 
-When the key is unset, only stdout logging is configured (useful for tests and offline development).
+When either is unset, only stdout logging is configured (useful for tests and offline development).
 
-What gets logged on every request:
+### Event streams emitted
 
-- request entry (path, client IP) — at the route handler.
-- prediction event with feature hash, prediction, probability, latency in ms — at `predict()`.
-- artifact load / startup events.
-- unhandled exceptions with stack traces.
+| Event | Source | Top-level fields |
+| --- | --- | --- |
+| `http_request` | [HttpEventMiddleware](src/app.py) on every request | `method`, `path`, `status_code`, `duration_ms`, `client_ip` |
+| `predict_request` | [predict_endpoint](src/app.py) before inference | all 10 features (`credit_score`, `geography`, `age`, `balance`, …) + `client` |
+| `prediction served` | [predictor.predict](src/predictor.py) after inference | `prediction` (0/1), `probability` (0-1), `latency_ms`, `feature_hash` |
+
+`extra={...}` keys are flattened to top-level event fields so APL queries can chart them directly — no nested `attributes.*` paths.
+
+### Dashboard metrics (5 across the 3 required categories)
+
+**Model**
+1. **Prediction probability distribution** — `summarize histogram(probability, 20) by bin(_time, 1m)` where `message == "prediction served"`. *Why:* detects model confidence drift; a healthy model is bimodal, a degraded one collapses toward 0.5.
+2. **Churn rate** — `summarize avg(prediction) by bin(_time, 1m)`. *Why:* class-balance drift is the cheapest early warning that the input distribution has shifted.
+
+**Data**
+3. **Validation-failure rate** — `where event == "http_request" | summarize countif(status_code == 400) * 1.0 / count() by bin(_time, 1m)`. *Why:* a spike means upstream callers are sending malformed payloads against the Pydantic schema in [src/schemas.py](src/schemas.py).
+4. **Feature distribution** — `where event == "predict_request" | summarize percentile(age, 50), percentile(age, 95), percentile(credit_score, 50) by bin(_time, 1m)`. *Why:* drift in the most-weighted features is the proximate cause of probability collapse — pair this with #1 to know *why* the model is misbehaving.
+
+**Server**
+5. **Latency p50/p95/p99 + RPS + status code mix** — `where event == "http_request" | summarize percentile(duration_ms, 50/95/99), count() by bin(_time, 1m)`. *Why:* p95 is the SLO the monitor watches; RPS gives demand context; status breakdown surfaces 5xx.
+
+### Monitor (alert)
+
+A threshold monitor in Axiom watches the p95 latency:
+
+```
+['churn-api']
+| where event == "http_request"
+| summarize p95 = percentile(duration_ms, 95) by bin(_time, 1m)
+```
+
+Trigger: `p95 > 2000` for 5 consecutive minutes → email `ishraqahmedjamaluddin@gmail.com`. Demoable by ramping Locust users until the API saturates.
 
 ## Testing
 
