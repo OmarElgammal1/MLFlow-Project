@@ -1,10 +1,7 @@
 name: Main validation and deploy to EC2 pipeline
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-  # search
 
 env:
   IMAGE_NAME: churn-api
